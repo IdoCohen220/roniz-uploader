@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Roniz</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="container">
+    <h1>Roniz</h1>
+  </header>
+  <main class="container">
+    <label class="attach">
+      <input id="fileInput" type="file" multiple accept="video/*" />
+      Attach files
+    </label>
+    <div id="progress" class="progress hidden"></div>
+    <section id="library">
+      <div id="videoList" class="grid"></div>
+    </section>
+  </main>
+  <script src="script.js"></script>
+</body>
+</html>

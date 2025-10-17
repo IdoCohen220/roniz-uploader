@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: roniz-uploader
+    env: node
+    buildCommand: "npm install"
+    startCommand: "node server.js"
+    autoDeploy: true
+    disk:
+      name: uploads
+      mountPath: /opt/render/project/src/uploads
+      sizeGB: 10
