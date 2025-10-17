@@ -24,14 +24,21 @@ function renderList(items) {
     card.className = 'card';
 
     const square = document.createElement('div');
-    square.className = 'square';
-    square.textContent = 'Loading...';
-    square.title = 'Click to preview';
-    square.addEventListener('click', (e) => {
-      e.preventDefault();
-      window.open(item.url, '_blank');
-    });
-    generateThumbnail(item.url, square);
+square.className = 'square';
+square.title = 'Click to preview';
+square.addEventListener('click', (e) => {
+  e.preventDefault();
+  window.open(item.url, '_blank');
+});
+
+// Prefer server-generated thumbnail (jpg or svg)
+if (item.thumb) {
+  square.style.backgroundImage = `url(${item.thumb})`;
+  square.style.backgroundSize = 'cover';
+  square.style.backgroundPosition = 'center';
+} else {
+  square.textContent = 'No preview';
+}
 
     const row = document.createElement('div');
     row.className = 'row';
