@@ -70,47 +70,80 @@ function renderList(items) {
 }
 
 // Robust client-side thumbnail: wait for metadata → seek → draw
+// Robust client-side thumbnail with multiple strategies + guaranteed fallback
 function generateThumbnail(url, square) {
+  let done = false;
+  const finish = (ok) => { done = true; if (!ok) showFallbackVideo(url, square); };
+
   const video = document.createElement('video');
   video.preload = 'metadata';
   video.muted = true;
   video.playsInline = true;
-  video.src = url;
+  video.crossOrigin = 'anonymous';
 
-  let done = false;
-  const fail = () => {
-    if (done) return;
-    done = true;
-    square.textContent = 'Preview failed';
-  };
+  function tryDraw() {
+    if (done) return false;
+    if (!video.videoWidth || !video.videoHeight) return false;
+    try {
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+      const scale = 0.25;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.floor(w * scale));
+      canvas.height = Math.max(1, Math.floor(h * scale));
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const dataURL = canvas.toDataURL('image/jpeg', 0.65);
+      square.textContent = '';
+      square.style.backgroundImage = `url(${dataURL})`;
+      square.style.backgroundSize = 'cover';
+      square.style.backgroundPosition = 'center';
+      finish(true);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
-  video.addEventListener('error', fail, { once: true });
-  video.addEventListener('loadedmetadata', () => {
-    const t = Math.min(1, Math.max(0, (video.duration || 2) * 0.1));
-    video.addEventListener('seeked', () => {
-      try {
-        const w = video.videoWidth || 320;
-        const h = video.videoHeight || 180;
-        const scale = 0.25;
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.max(1, Math.floor(w * scale));
-        canvas.height = Math.max(1, Math.floor(h * scale));
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const dataURL = canvas.toDataURL('image/jpeg', 0.65);
-        square.textContent = '';
-        square.style.backgroundImage = `url(${dataURL})`;
-        square.style.backgroundSize = 'cover';
-        square.style.backgroundPosition = 'center';
-        done = true;
-      } catch {
-        fail();
-      }
+  function showFallbackVideo(src, square) {
+    square.textContent = '';
+    const v = document.createElement('video');
+    v.className = 'thumb';
+    v.src = src;
+    v.preload = 'metadata';
+    v.muted = true;
+    v.playsInline = true;
+    square.appendChild(v);
+    v.addEventListener('loadeddata', () => {
+      v.play().then(() => v.pause()).catch(() => {});
     }, { once: true });
-    try { video.currentTime = t; } catch { fail(); }
+  }
+
+  video.addEventListener('error', () => finish(false), { once: true });
+
+  video.addEventListener('loadedmetadata', () => {
+    const t = Math.min(1, Math.max(0.1, (video.duration || 2) * 0.1));
+    const onSeeked = () => {
+      if (done) return;
+      if (!tryDraw()) {
+        video.addEventListener('canplay', () => {
+          if (!tryDraw()) finish(false);
+        }, { once: true });
+      }
+    };
+    video.addEventListener('seeked', onSeeked, { once: true });
+    try {
+      video.currentTime = t;
+    } catch {
+      video.addEventListener('canplay', () => {
+        if (!tryDraw()) finish(false);
+      }, { once: true });
+    }
   }, { once: true });
 
-  setTimeout(fail, 8000);
+  setTimeout(() => { if (!done) finish(false); }, 8000);
+  video.src = url + '#t=0.5';
 }
+
 
 fetchVideos();
