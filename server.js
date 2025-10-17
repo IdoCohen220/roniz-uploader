@@ -97,7 +97,7 @@ app.get('/api/videos', (req, res) => {
   res.json({ items });
 });
 
-app.post('/api/upload', upload.array('files'), (req, res) => {
+app.post('/api/upload', upload.array('videos'), async (req, res) => {
   const meta = loadMeta();
   for (const file of req.files) {
     const id = file.filename;
