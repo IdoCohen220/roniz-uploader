@@ -26,6 +26,8 @@ const upload = multer({ storage, limits: { fileSize: 2 * 1024 * 1024 * 1024 } })
 
 app.use(cors());
 app.use(express.json());
+// Good: simple static
+app.use('/uploads', express.static(UPLOAD_DIR));
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res, filePath) => {
     if (/\.(js|css|html)$/.test(filePath)) {
@@ -43,7 +45,8 @@ app.get('/api/videos', (req, res) => {
     const stat = fs.statSync(path.join(UPLOAD_DIR, fname));
     const id = fname;
     const title = meta.items[id]?.title ?? fname.replace(/^\d+__/, '').replace(/\.[^/.]+$/, '');
-    return { id, title, url: `/uploads/${encodeURIComponent(fname)}`, size: stat.size, uploadedAt: stat.birthtimeMs || stat.ctimeMs };
+    return { id, title, url: `/uploads/${encodeURIComponent(fname)}`, size: stat.size, uploadedAt: stat.birthtimeMs ||     stat.ctimeMs };
+
   });
   res.json({ items });
 });
