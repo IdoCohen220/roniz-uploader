@@ -26,8 +26,14 @@ const upload = multer({ storage, limits: { fileSize: 2 * 1024 * 1024 * 1024 } })
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(UPLOAD_DIR));
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    if (/\.(js|css|html)$/.test(filePath)) {
+      res.setHeader('Cache-Control', 'no-store');
+    }
+  }
+}));
+
 
 app.get('/api/videos', (req, res) => {
   const meta = loadMeta();
