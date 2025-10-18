@@ -1,21 +1,45 @@
-const listEl = document.getElementById('videoList');
+const listEl = document.getElementById('list');
+const attachBtn = document.getElementById('attachBtn');
 const fileInput = document.getElementById('fileInput');
+const dropzone = document.getElementById('dropzone');
+const themeSelect = document.getElementById('theme');
 
-async function fetchVideos() {
-  const res = await fetch('/api/videos', { cache: 'no-store' });
-  const data = await res.json();
-  renderList(data.items);
+attachBtn.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', async () => {
+  if (!fileInput.files.length) return;
+  await uploadFiles(fileInput.files);
+  fileInput.value = '';
+  await fetchVideos();
+});
+
+// drag & drop
+['dragenter','dragover'].forEach(evt => dropzone.addEventListener(evt, e => {
+  e.preventDefault(); e.stopPropagation(); dropzone.classList.add('drag');
+}));
+['dragleave','drop'].forEach(evt => dropzone.addEventListener(evt, e => {
+  e.preventDefault(); e.stopPropagation(); dropzone.classList.remove('drag');
+}));
+dropzone.addEventListener('drop', async e => {
+  const files = e.dataTransfer.files;
+  if (files && files.length) {
+    await uploadFiles(files);
+    await fetchVideos();
+  }
+});
+
+async function uploadFiles(files) {
+  const fd = new FormData();
+  Array.from(files).forEach(f => fd.append('files', f));
+  attachBtn.disabled = true;
+  await fetch('/api/upload', { method: 'POST', body: fd });
+  attachBtn.disabled = false;
 }
 
-fileInput.addEventListener('change', async (e) => {
-  const files = Array.from(e.target.files || []);
-  if (!files.length) return;
-  const form = new FormData();
-  for (const f of files) form.append('files', f);
-  await fetch('/api/upload', { method: 'POST', body: form });
-  await fetchVideos();
-  fileInput.value = '';
-});
+async function fetchVideos() {
+  const res = await fetch('/api/videos');
+  const data = await res.json();
+  renderList(data.items || []);
+}
 
 function renderList(items) {
   listEl.innerHTML = '';
@@ -24,173 +48,78 @@ function renderList(items) {
     card.className = 'card';
 
     const square = document.createElement('div');
-square.className = 'square';
-square.title = 'Click to preview';
-square.addEventListener('click', (e) => {
-  e.preventDefault();
-  window.open(item.url, '_blank');
-});
+    square.className = 'square';
+    if (item.thumb) square.style.backgroundImage = `url(${item.thumb})`;
+    square.title = 'Click to preview';
+    square.addEventListener('click', e => {
+      e.preventDefault();
+      window.open(item.url, '_blank');
+    });
 
-// Prefer server-generated thumbnail (jpg or svg)
-if (item.thumb) {
-  square.style.backgroundImage = `url(${item.thumb})`;
-  square.style.backgroundSize = 'cover';
-  square.style.backgroundPosition = 'center';
-} else {
-  square.textContent = 'No preview';
-}
+    const badge = document.createElement('div');
+    badge.className = 'badge';
+    badge.textContent = new Date(item.uploadedAt).toLocaleDateString();
 
     const row = document.createElement('div');
     row.className = 'row';
 
     const name = document.createElement('input');
-    name.type = 'text';
+    name.className = 'name';
     name.value = item.title;
+    name.addEventListener('dblclick', () => name.select());
 
-    const save = document.createElement('button');
-    save.textContent = 'Save';
-    save.addEventListener('click', async () => {
+    const save = btn('Save', 'ok', async () => {
       await fetch(`/api/videos/${encodeURIComponent(item.id)}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ title: name.value })
       });
+      // also rebuild slate with same theme on rename
+      await fetch(`/api/videos/${encodeURIComponent(item.id)}/slate?theme=${encodeURIComponent(themeSelect.value)}`, { method:'POST' });
       await fetchVideos();
     });
 
-    const del = document.createElement('button');
-    del.textContent = 'Delete';
-    del.addEventListener('click', async () => {
-      if (!confirm(`Delete "${item.title}"?`)) return;
+    const del = btn('Delete', 'danger', async () => {
+      if (!confirm('Delete this video?')) return;
       await fetch(`/api/videos/${encodeURIComponent(item.id)}`, { method: 'DELETE' });
       await fetchVideos();
     });
 
-    row.appendChild(name);
-    // Button: Slate cover (generate clean title card)
-const slateBtn = document.createElement('button');
-slateBtn.textContent = 'Slate cover';
-slateBtn.className = 'btn';
-slateBtn.addEventListener('click', async () => {
-  slateBtn.disabled = true;
-  await fetch(`/api/videos/${encodeURIComponent(item.id)}/slate`, { method: 'POST' });
-  slateBtn.disabled = false;
-  await fetchVideos();
-});
-row.appendChild(slateBtn);
+    const slate = btn('Slate cover', '', async () => {
+      slate.disabled = true;
+      await fetch(`/api/videos/${encodeURIComponent(item.id)}/slate?theme=${encodeURIComponent(themeSelect.value)}`, { method:'POST' });
+      slate.disabled = false;
+      await fetchVideos();
+    });
 
-// Button + input: Upload custom cover
-const coverInput = document.createElement('input');
-coverInput.type = 'file';
-coverInput.accept = 'image/jpeg,image/png,image/webp';
-coverInput.style.display = 'none';
+    const uploadCover = btn('Upload cover', '', () => coverInput.click());
+    const coverInput = document.createElement('input');
+    coverInput.type = 'file';
+    coverInput.accept = 'image/jpeg,image/png,image/webp';
+    coverInput.hidden = true;
+    coverInput.addEventListener('change', async () => {
+      const f = coverInput.files[0];
+      if (!f) return;
+      const fd = new FormData();
+      fd.append('cover', f);
+      uploadCover.disabled = true;
+      await fetch(`/api/videos/${encodeURIComponent(item.id)}/cover`, { method:'POST', body: fd });
+      uploadCover.disabled = false;
+      await fetchVideos();
+    });
 
-const uploadBtn = document.createElement('button');
-uploadBtn.textContent = 'Upload cover';
-uploadBtn.className = 'btn';
-uploadBtn.addEventListener('click', () => coverInput.click());
-
-coverInput.addEventListener('change', async () => {
-  const f = coverInput.files[0];
-  if (!f) return;
-  uploadBtn.disabled = true;
-  const fd = new FormData();
-  fd.append('cover', f);
-  await fetch(`/api/videos/${encodeURIComponent(item.id)}/cover`, {
-    method: 'POST',
-    body: fd
-  });
-  uploadBtn.disabled = false;
-  await fetchVideos();
-});
-
-row.appendChild(uploadBtn);
-row.appendChild(coverInput);
-
-    row.appendChild(save);
-    row.appendChild(del);
-
-    card.appendChild(square);
-    card.appendChild(row);
+    row.append(name, save, del, slate, uploadCover, coverInput);
+    card.append(square, badge, row);
     listEl.appendChild(card);
   }
 }
 
-// Robust client-side thumbnail: wait for metadata → seek → draw
-// Robust client-side thumbnail with multiple strategies + guaranteed fallback
-function generateThumbnail(url, square) {
-  let done = false;
-  const finish = (ok) => { done = true; if (!ok) showFallbackVideo(url, square); };
-
-  const video = document.createElement('video');
-  video.preload = 'metadata';
-  video.muted = true;
-  video.playsInline = true;
-  video.crossOrigin = 'anonymous';
-
-  function tryDraw() {
-    if (done) return false;
-    if (!video.videoWidth || !video.videoHeight) return false;
-    try {
-      const w = video.videoWidth;
-      const h = video.videoHeight;
-      const scale = 0.25;
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.floor(w * scale));
-      canvas.height = Math.max(1, Math.floor(h * scale));
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataURL = canvas.toDataURL('image/jpeg', 0.65);
-      square.textContent = '';
-      square.style.backgroundImage = `url(${dataURL})`;
-      square.style.backgroundSize = 'cover';
-      square.style.backgroundPosition = 'center';
-      finish(true);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  function showFallbackVideo(src, square) {
-    square.textContent = '';
-    const v = document.createElement('video');
-    v.className = 'thumb';
-    v.src = src;
-    v.preload = 'metadata';
-    v.muted = true;
-    v.playsInline = true;
-    square.appendChild(v);
-    v.addEventListener('loadeddata', () => {
-      v.play().then(() => v.pause()).catch(() => {});
-    }, { once: true });
-  }
-
-  video.addEventListener('error', () => finish(false), { once: true });
-
-  video.addEventListener('loadedmetadata', () => {
-    const t = Math.min(1, Math.max(0.1, (video.duration || 2) * 0.1));
-    const onSeeked = () => {
-      if (done) return;
-      if (!tryDraw()) {
-        video.addEventListener('canplay', () => {
-          if (!tryDraw()) finish(false);
-        }, { once: true });
-      }
-    };
-    video.addEventListener('seeked', onSeeked, { once: true });
-    try {
-      video.currentTime = t;
-    } catch {
-      video.addEventListener('canplay', () => {
-        if (!tryDraw()) finish(false);
-      }, { once: true });
-    }
-  }, { once: true });
-
-  setTimeout(() => { if (!done) finish(false); }, 8000);
-  video.src = url + '#t=0.5';
+function btn(label, kind, onClick){
+  const b = document.createElement('button');
+  b.textContent = label;
+  b.className = `btn ${kind||''}`;
+  b.addEventListener('click', onClick);
+  return b;
 }
-
 
 fetchVideos();

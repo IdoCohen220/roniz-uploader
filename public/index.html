@@ -4,22 +4,32 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Roniz</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=5" />
 </head>
 <body>
-  <header class="container">
-    <h1>Roniz</h1>
+  <header class="toolbar">
+    <div class="brand">Roniz</div>
+    <div class="tools">
+      <label class="select-wrap">
+        <span>Slate theme</span>
+        <select id="theme">
+          <option value="midnight" selected>Midnight</option>
+          <option value="chalk">Chalkboard</option>
+          <option value="paper">Paper</option>
+        </select>
+      </label>
+      <button id="attachBtn" class="btn">Attach files</button>
+      <input id="fileInput" type="file" accept="video/*" multiple hidden />
+    </div>
   </header>
-  <main class="container">
-    <label class="attach">
-      <input id="fileInput" type="file" multiple accept="video/*" />
-      Attach files
-    </label>
-    <div id="progress" class="progress hidden"></div>
-    <section id="library">
-      <div id="videoList" class="grid"></div>
-    </section>
+
+  <main>
+    <div id="dropzone" class="dropzone">
+      <div class="dz-text">Drop videos here or click “Attach files”</div>
+    </div>
+    <div id="list" class="grid"></div>
   </main>
-  <script src="script.js?v=4" defer></script>
+
+  <script src="script.js?v=5" defer></script>
 </body>
 </html>

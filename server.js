@@ -30,35 +30,80 @@ function thumbJpgFromVideo(filename) { return filename + '.jpg'; }          // (
 function slateSvgFromVideo(filename) { return filename + '.svg'; }
 function coverJpgFromVideo(filename) { return filename + '.cover.jpg'; }
 
-function writeSlateSVG(title, outFileFullPath) {
+function writeSlateSVG(title, outFileFullPath, theme = 'midnight') {
   const safeTitle = (title || 'Roniz Lesson').replace(/[<>]/g, '');
+  const themes = {
+    midnight: {
+      bgA: '#0d1117', bgB: '#1f2937',
+      accent: '#374151', titleFill: '#ffffff', brandFill: '#9CA3AF'
+    },
+    chalk: {
+      // chalkboard vibe
+      bgA: '#193a2a', bgB: '#132e21',
+      accent: '#2a4b39', titleFill: '#e8f5e9', brandFill: '#b7d7c3'
+    },
+    paper: {
+      // clean note paper
+      bgA: '#faf8f3', bgB: '#f1ede3',
+      accent: '#d9d3c3', titleFill: '#222222', brandFill: '#6b7280'
+    }
+  };
+  const t = themes[theme] || themes.midnight;
+
   const svg = `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="640" height="360" viewBox="0 0 640 360" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0d1117"/>
-      <stop offset="100%" stop-color="#1f2937"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="${t.bgA}"/>
+      <stop offset="100%" stop-color="${t.bgB}"/>
     </linearGradient>
+
+    <!-- subtle grid for math vibe -->
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M20 0H0V20" fill="none" stroke="${t.accent}" stroke-opacity="0.25" stroke-width="1"/>
+    </pattern>
+    <filter id="noise" x="0" y="0" width="1" height="1">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="1" stitchTiles="stitch" />
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.04"/>
+      </feComponentTransfer>
+    </filter>
+
+    <style><![CDATA[
+      @media (prefers-color-scheme: light) {
+        .title { letter-spacing: 0.5px; }
+      }
+      .math { opacity: .25; font: 24px 'Segoe UI', Roboto, Arial, sans-serif; }
+      .brand { font: 600 18px 'Segoe UI', Roboto, Arial, sans-serif; fill: ${t.brandFill}; }
+      .title { font: 800 38px 'Segoe UI', Roboto, Arial, sans-serif; fill: ${t.titleFill}; }
+    ]]></style>
   </defs>
-  <rect width="640" height="360" fill="url(#g)"/>
-  <text x="40" y="110" fill="#9CA3AF" font-family="Segoe UI, Roboto, Arial" font-size="20">Roniz</text>
-  <text x="40" y="180" fill="#FFFFFF" font-family="Segoe UI, Roboto, Arial" font-size="34" font-weight="700">${safeTitle}</text>
-  <rect x="40" y="230" width="150" height="6" rx="3" fill="#374151"/>
-  <rect x="40" y="244" width="220" height="6" rx="3" fill="#374151"/>
+
+  <rect width="640" height="360" fill="url(#bg)"/>
+  <rect width="640" height="360" fill="url(#grid)"/>
+  <rect width="640" height="360" filter="url(#noise)"/>
+
+  <!-- Brand -->
+  <text x="32" y="72" class="brand">Roniz</text>
+
+  <!-- Title -->
+  <foreignObject x="32" y="118" width="576" height="160">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;align-items:center;height:100%;">
+      <div class="title" style="line-height:1.15;word-wrap:break-word;">
+        ${safeTitle}
+      </div>
+    </div>
+  </foreignObject>
+
+  <!-- math glyphs -->
+  <text x="40" y="280" class="math" fill="${t.brandFill}">π  •  Σ  •  √  •  ∫  •  ≈  •  ∞</text>
+  <rect x="40" y="298" width="180" height="6" rx="3" fill="${t.accent}" opacity=".8"/>
+  <rect x="40" y="312" width="240" height="6" rx="3" fill="${t.accent}" opacity=".6"/>
 </svg>`;
   fs.writeFileSync(outFileFullPath, svg, 'utf-8');
 }
-/* -------------------------------------- */
 
-// video upload storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
-  filename: (req, file, cb) => {
-    const time = Date.now();
-    const safe = file.originalname.replace(/[^\w.\-]+/g, '_');
-    cb(null, `${time}__${safe}`);
-  }
-});
 const upload = multer({ storage, limits: { fileSize: 2 * 1024 * 1024 * 1024 } }); // 2GB
 
 // cover image uploader
@@ -164,18 +209,17 @@ app.delete('/api/videos/:id', (req, res) => {
 });
 
 // Regenerate clean slate based on current title
+// Regenerate clean slate cover with optional theme ?theme=midnight|chalk|paper
 app.post('/api/videos/:id/slate', (req, res) => {
   const { id } = req.params;
+  const theme = (req.query.theme || 'midnight').toLowerCase();
   const meta = loadMeta();
-  const title =
-    meta.items[id]?.title ??
-    id.replace(/^\d+__/, '').replace(/\.[^/.]+$/, '');
-
+  const title = meta.items[id]?.title ?? id.replace(/^\d+__/, '').replace(/\.[^/.]+$/, '');
   const svgFull = path.join(UPLOAD_DIR, slateSvgFromVideo(id));
   try {
-    writeSlateSVG(title, svgFull);
+    writeSlateSVG(title, svgFull, theme);
     res.json({ ok: true, slate: `/uploads/${encodeURIComponent(path.basename(svgFull))}` });
-  } catch {
+  } catch (e) {
     res.status(500).json({ error: 'Slate generation failed' });
   }
 });
