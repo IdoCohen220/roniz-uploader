@@ -219,6 +219,8 @@ app.delete('/api/videos/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-app.listen(PORT, () => {
-  console.log(`Roniz uploader running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Roniz uploader running on port ${PORT}`);
 });
+
+
