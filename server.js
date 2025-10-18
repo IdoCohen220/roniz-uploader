@@ -2,14 +2,13 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const { spawn } = require('child_process');
 const cors = require('cors');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
-const META_FILE = path.join(UPLOAD_DIR, 'metadata.json');
+const META_FILE  = path.join(UPLOAD_DIR, 'metadata.json');
 
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -17,9 +16,7 @@ function loadMeta() {
   try { return JSON.parse(fs.readFileSync(META_FILE, 'utf-8')); }
   catch { return { items: {} }; }
 }
-function saveMeta(meta) {
-  fs.writeFileSync(META_FILE, JSON.stringify(meta, null, 2));
-}
+function saveMeta(meta) { fs.writeFileSync(META_FILE, JSON.stringify(meta, null, 2)); }
 
 function fileExistsNonZero(p) {
   try {
@@ -29,7 +26,7 @@ function fileExistsNonZero(p) {
 }
 
 /* ---------- Thumbnail helpers ---------- */
-function thumbJpgFromVideo(filename) { return filename + '.jpg'; }
+function thumbJpgFromVideo(filename) { return filename + '.jpg'; }          // (kept for future use)
 function slateSvgFromVideo(filename) { return filename + '.svg'; }
 function coverJpgFromVideo(filename) { return filename + '.cover.jpg'; }
 
@@ -51,9 +48,9 @@ function writeSlateSVG(title, outFileFullPath) {
 </svg>`;
   fs.writeFileSync(outFileFullPath, svg, 'utf-8');
 }
-
 /* -------------------------------------- */
 
+// video upload storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_DIR),
   filename: (req, file, cb) => {
@@ -62,27 +59,22 @@ const storage = multer.diskStorage({
     cb(null, `${time}__${safe}`);
   }
 });
-const upload = multer({
-  storage,
-  limits: { fileSize: 2 * 1024 * 1024 * 1024 } // 2 GB
-});
+const upload = multer({ storage, limits: { fileSize: 2 * 1024 * 1024 * 1024 } }); // 2GB
 
-// Separate uploader for cover images
+// cover image uploader
 const coverUpload = multer({
   storage: multer.diskStorage({
     destination: (req, file, cb) => cb(null, UPLOAD_DIR),
     filename: (req, file, cb) => cb(null, coverJpgFromVideo(req.params.id))
   }),
-  fileFilter: (req, file, cb) => {
-    cb(null, /image\/(jpeg|png|webp)/i.test(file.mimetype));
-  },
-  limits: { fileSize: 10 * 1024 * 1024 } // 10 MB max
+  fileFilter: (req, file, cb) => cb(null, /image\/(jpeg|png|webp)/i.test(file.mimetype)),
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB
 });
 
 app.use(cors());
 app.use(express.json());
 
-// Serve uploads and frontend
+// static files
 app.use('/uploads', express.static(UPLOAD_DIR));
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res, filePath) => {
@@ -92,46 +84,45 @@ app.use(express.static(path.join(__dirname, 'public'), {
 
 /* ---------- API ---------- */
 
-// List all videos
+// List videos (+ best-available thumbnail)
 app.get('/api/videos', (req, res) => {
-  const meta = loadMeta();
+  const meta  = loadMeta();
   const files = fs.readdirSync(UPLOAD_DIR)
     .filter(f => f !== 'metadata.json')
     .filter(f => /\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(f));
 
   const items = files.map(fname => {
-    const stat = fs.statSync(path.join(UPLOAD_DIR, fname));
-    const id = fname;
-    const title = meta.items[id]?.title ?? fname.replace(/^\d+__/, '').replace(/\.[^/.]+$/, '');
-    const videoUrl = `/uploads/${encodeURIComponent(fname)}`;
+    const stat   = fs.statSync(path.join(UPLOAD_DIR, fname));
+    const id     = fname;
+    const title  = meta.items[id]?.title ?? fname.replace(/^\d+__/, '').replace(/\.[^/.]+$/, '');
+    const url    = `/uploads/${encodeURIComponent(fname)}`;
 
-    // Priority: cover.jpg → thumb.jpg → slate.svg
+    // Priority: custom cover → jpg (if present) → slate svg
     const coverLocal = path.join(UPLOAD_DIR, coverJpgFromVideo(fname));
-    const jpgLocal = path.join(UPLOAD_DIR, thumbJpgFromVideo(fname));
-    const svgLocal = path.join(UPLOAD_DIR, slateSvgFromVideo(fname));
+    const jpgLocal   = path.join(UPLOAD_DIR, thumbJpgFromVideo(fname));
+    const svgLocal   = path.join(UPLOAD_DIR, slateSvgFromVideo(fname));
 
     let thumb = null;
     if (fileExistsNonZero(coverLocal)) thumb = `/uploads/${encodeURIComponent(path.basename(coverLocal))}`;
     else if (fileExistsNonZero(jpgLocal)) thumb = `/uploads/${encodeURIComponent(path.basename(jpgLocal))}`;
     else if (fileExistsNonZero(svgLocal)) thumb = `/uploads/${encodeURIComponent(path.basename(svgLocal))}`;
 
-    return { id, title, url: videoUrl, thumb, size: stat.size, uploadedAt: stat.birthtimeMs || stat.ctimeMs };
+    return { id, title, url, thumb, size: stat.size, uploadedAt: stat.birthtimeMs || stat.ctimeMs };
   });
 
   res.json({ items });
 });
 
-// Upload new videos
-app.post('/api/upload', upload.array('files'), async (req, res) => {
+// Upload new videos (always create a slate SVG immediately)
+app.post('/api/upload', upload.array('files'), (req, res) => {
   const files = req.files || [];
-  const meta = loadMeta();
+  const meta  = loadMeta();
 
   for (const file of files) {
     const id = file.filename;
     const defaultTitle = file.originalname.replace(/\.[^/.]+$/, '');
     meta.items[id] = meta.items[id] || { title: defaultTitle };
 
-    // Always generate a branded SVG slate immediately
     const svgFull = path.join(UPLOAD_DIR, slateSvgFromVideo(id));
     try { writeSlateSVG(defaultTitle, svgFull); } catch {}
   }
@@ -140,11 +131,11 @@ app.post('/api/upload', upload.array('files'), async (req, res) => {
   res.json({ ok: true, count: files.length });
 });
 
-// Rename video
+// Rename (title)
 app.patch('/api/videos/:id', (req, res) => {
   const { id } = req.params;
   const { title } = req.body || {};
-  if (!title?.trim()) return res.status(400).json({ error: 'Title is required' });
+  if (!title || !title.trim()) return res.status(400).json({ error: 'Title is required' });
 
   const meta = loadMeta();
   if (!meta.items[id]) meta.items[id] = {};
@@ -154,7 +145,7 @@ app.patch('/api/videos/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// Delete video + thumbnails
+// Delete video + related thumbnails
 app.delete('/api/videos/:id', (req, res) => {
   const { id } = req.params;
   const videoPath = path.join(UPLOAD_DIR, id);
@@ -163,7 +154,7 @@ app.delete('/api/videos/:id', (req, res) => {
   fs.unlinkSync(videoPath);
   [thumbJpgFromVideo(id), slateSvgFromVideo(id), coverJpgFromVideo(id)]
     .map(f => path.join(UPLOAD_DIR, f))
-    .forEach(f => { if (fs.existsSync(f)) fs.unlinkSync(f); });
+    .forEach(p => { if (fs.existsSync(p)) fs.unlinkSync(p); });
 
   const meta = loadMeta();
   delete meta.items[id];
@@ -172,11 +163,14 @@ app.delete('/api/videos/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// Regenerate clean slate cover
+// Regenerate clean slate based on current title
 app.post('/api/videos/:id/slate', (req, res) => {
   const { id } = req.params;
   const meta = loadMeta();
-  const title = meta.items[id]?.title ?? id.replace(/^\d+__/, '').replace(/\.[^/.]+$/, '');
+  const title =
+    meta.items[id]?.title ??
+    id.replace(/^\d+__/, '').replace(/\.[^/.]+$/, '');
+
   const svgFull = path.join(UPLOAD_DIR, slateSvgFromVideo(id));
   try {
     writeSlateSVG(title, svgFull);
@@ -194,53 +188,8 @@ app.post('/api/videos/:id/cover', coverUpload.single('cover'), (req, res) => {
   res.json({ ok: true, cover: `/uploads/${encodeURIComponent(path.basename(cover))}` });
 });
 
-app.listen(PORT, () => {
-  console.log(`Roniz uploader running on http://localhost:${PORT}`);
-});
-
-
-// Delete video + thumbnails
-app.delete('/api/videos/:id', (req, res) => {
-  const { id } = req.params;
-  const videoPath = path.join(UPLOAD_DIR, id);
-  if (!fs.existsSync(videoPath)) return res.status(404).json({ error: 'Not found' });
-
-  fs.unlinkSync(videoPath);
-
-  const jpgFull = path.join(UPLOAD_DIR, thumbJpgFromVideo(id));
-  if (fs.existsSync(jpgFull)) fs.unlinkSync(jpgFull);
-  const svgFull = path.join(UPLOAD_DIR, slateSvgFromVideo(id));
-  if (fs.existsSync(svgFull)) fs.unlinkSync(svgFull);
-
-  const meta = loadMeta();
-  delete meta.items[id];
-  saveMeta(meta);
-
-  res.json({ ok: true });
-});
-
-if (!process.env.RENDER) {
-  // Local dev
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Roniz uploader running locally on port ${PORT}`);
-  });
-} else {
-  // Render environment
-  const server = app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Roniz uploader running on port ${PORT}`);
-  });
-
-  // Optional: handle EADDRINUSE gracefully
-  server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-      console.log('Port already in use, skipping duplicate listener');
-    } else {
-      throw err;
-    }
-  });
-}
-
+/* ---------- Start server (single listener) ---------- */
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Roniz uploader running on port ${PORT}`);
 });
-
 
