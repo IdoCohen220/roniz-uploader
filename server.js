@@ -9,7 +9,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
-const META_FILE  = path.join(UPLOAD_DIR, 'metadata.json');
+const META_FILE = path.join(UPLOAD_DIR, 'metadata.json');
 
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -21,26 +21,17 @@ function saveMeta(meta) {
   fs.writeFileSync(META_FILE, JSON.stringify(meta, null, 2));
 }
 
-/* ---------- Thumbnail helpers ---------- */
-function thumbJpgFromVideo(filename) { return filename + '.jpg'; }  // e.g. 123__v.mp4 -> 123__v.mp4.jpg
-function slateSvgFromVideo(filename) { return filename + '.svg'; }
-
-function generateThumbFFmpeg(inFile, outFile) {
-  // Grab a frame ~3s in and scale to 640w
-  return new Promise((resolve, reject) => {
-    const args = [
-      '-y',
-      '-ss', '00:00:03',
-      '-i', inFile,
-      '-frames:v', '1',
-      '-vf', 'scale=640:-1:force_original_aspect_ratio=decrease',
-      '-q:v', '3',
-      outFile
-    ];
-    const p = spawn('ffmpeg', args, { stdio: 'ignore' });
-    p.on('close', code => (code === 0 ? resolve() : reject(new Error('ffmpeg exit ' + code))));
-  });
+function fileExistsNonZero(p) {
+  try {
+    const s = fs.statSync(p);
+    return s.isFile() && s.size > 0;
+  } catch { return false; }
 }
+
+/* ---------- Thumbnail helpers ---------- */
+function thumbJpgFromVideo(filename) { return filename + '.jpg'; }
+function slateSvgFromVideo(filename) { return filename + '.svg'; }
+function coverJpgFromVideo(filename) { return filename + '.cover.jpg'; }
 
 function writeSlateSVG(title, outFileFullPath) {
   const safeTitle = (title || 'Roniz Lesson').replace(/[<>]/g, '');
@@ -60,6 +51,7 @@ function writeSlateSVG(title, outFileFullPath) {
 </svg>`;
   fs.writeFileSync(outFileFullPath, svg, 'utf-8');
 }
+
 /* -------------------------------------- */
 
 const storage = multer.diskStorage({
@@ -72,89 +64,87 @@ const storage = multer.diskStorage({
 });
 const upload = multer({
   storage,
-  limits: { fileSize: 2 * 1024 * 1024 * 1024 } // 2 GB per file
+  limits: { fileSize: 2 * 1024 * 1024 * 1024 } // 2 GB
+});
+
+// Separate uploader for cover images
+const coverUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+    filename: (req, file, cb) => cb(null, coverJpgFromVideo(req.params.id))
+  }),
+  fileFilter: (req, file, cb) => {
+    cb(null, /image\/(jpeg|png|webp)/i.test(file.mimetype));
+  },
+  limits: { fileSize: 10 * 1024 * 1024 } // 10 MB max
 });
 
 app.use(cors());
 app.use(express.json());
 
-// Serve uploads and public assets (avoid caching js/css/html)
+// Serve uploads and frontend
 app.use('/uploads', express.static(UPLOAD_DIR));
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders: (res, filePath) => {
-    if (/\.(js|css|html)$/.test(filePath)) {
-      res.setHeader('Cache-Control', 'no-store');
-    }
+    if (/\.(js|css|html)$/.test(filePath)) res.setHeader('Cache-Control', 'no-store');
   }
 }));
 
 /* ---------- API ---------- */
 
-// List videos (+thumbnail if exists)
+// List all videos
 app.get('/api/videos', (req, res) => {
-  const meta  = loadMeta();
+  const meta = loadMeta();
   const files = fs.readdirSync(UPLOAD_DIR)
     .filter(f => f !== 'metadata.json')
     .filter(f => /\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(f));
 
   const items = files.map(fname => {
-    const stat  = fs.statSync(path.join(UPLOAD_DIR, fname));
-    const id    = fname;
+    const stat = fs.statSync(path.join(UPLOAD_DIR, fname));
+    const id = fname;
     const title = meta.items[id]?.title ?? fname.replace(/^\d+__/, '').replace(/\.[^/.]+$/, '');
-
     const videoUrl = `/uploads/${encodeURIComponent(fname)}`;
 
+    // Priority: cover.jpg → thumb.jpg → slate.svg
+    const coverLocal = path.join(UPLOAD_DIR, coverJpgFromVideo(fname));
     const jpgLocal = path.join(UPLOAD_DIR, thumbJpgFromVideo(fname));
     const svgLocal = path.join(UPLOAD_DIR, slateSvgFromVideo(fname));
-    let thumb = null;
-    if (fs.existsSync(jpgLocal))      thumb = `/uploads/${encodeURIComponent(path.basename(jpgLocal))}`;
-    else if (fs.existsSync(svgLocal)) thumb = `/uploads/${encodeURIComponent(path.basename(svgLocal))}`;
 
-    return {
-      id,
-      title,
-      url: videoUrl,
-      thumb,
-      size: stat.size,
-      uploadedAt: stat.birthtimeMs || stat.ctimeMs
-    };
+    let thumb = null;
+    if (fileExistsNonZero(coverLocal)) thumb = `/uploads/${encodeURIComponent(path.basename(coverLocal))}`;
+    else if (fileExistsNonZero(jpgLocal)) thumb = `/uploads/${encodeURIComponent(path.basename(jpgLocal))}`;
+    else if (fileExistsNonZero(svgLocal)) thumb = `/uploads/${encodeURIComponent(path.basename(svgLocal))}`;
+
+    return { id, title, url: videoUrl, thumb, size: stat.size, uploadedAt: stat.birthtimeMs || stat.ctimeMs };
   });
 
   res.json({ items });
 });
 
-// Upload videos (field name: 'files'), generate thumbs
+// Upload new videos
 app.post('/api/upload', upload.array('files'), async (req, res) => {
   const files = req.files || [];
-  const meta  = loadMeta();
+  const meta = loadMeta();
 
-  const jobs = [];
   for (const file of files) {
     const id = file.filename;
     const defaultTitle = file.originalname.replace(/\.[^/.]+$/, '');
     meta.items[id] = meta.items[id] || { title: defaultTitle };
 
-    const inFull  = path.join(UPLOAD_DIR, id);
-    const jpgFull = path.join(UPLOAD_DIR, thumbJpgFromVideo(id));
+    // Always generate a branded SVG slate immediately
     const svgFull = path.join(UPLOAD_DIR, slateSvgFromVideo(id));
-
-    // Try ffmpeg; on failure, write branded SVG slate
-    const job = generateThumbFFmpeg(inFull, jpgFull).catch(() => {
-      writeSlateSVG(defaultTitle, svgFull);
-    });
-    jobs.push(job);
+    try { writeSlateSVG(defaultTitle, svgFull); } catch {}
   }
 
   saveMeta(meta);
-  await Promise.all(jobs);
   res.json({ ok: true, count: files.length });
 });
 
-// Rename
+// Rename video
 app.patch('/api/videos/:id', (req, res) => {
   const { id } = req.params;
   const { title } = req.body || {};
-  if (!title || !title.trim()) return res.status(400).json({ error: 'Title is required' });
+  if (!title?.trim()) return res.status(400).json({ error: 'Title is required' });
 
   const meta = loadMeta();
   if (!meta.items[id]) meta.items[id] = {};
@@ -163,6 +153,51 @@ app.patch('/api/videos/:id', (req, res) => {
 
   res.json({ ok: true });
 });
+
+// Delete video + thumbnails
+app.delete('/api/videos/:id', (req, res) => {
+  const { id } = req.params;
+  const videoPath = path.join(UPLOAD_DIR, id);
+  if (!fs.existsSync(videoPath)) return res.status(404).json({ error: 'Not found' });
+
+  fs.unlinkSync(videoPath);
+  [thumbJpgFromVideo(id), slateSvgFromVideo(id), coverJpgFromVideo(id)]
+    .map(f => path.join(UPLOAD_DIR, f))
+    .forEach(f => { if (fs.existsSync(f)) fs.unlinkSync(f); });
+
+  const meta = loadMeta();
+  delete meta.items[id];
+  saveMeta(meta);
+
+  res.json({ ok: true });
+});
+
+// Regenerate clean slate cover
+app.post('/api/videos/:id/slate', (req, res) => {
+  const { id } = req.params;
+  const meta = loadMeta();
+  const title = meta.items[id]?.title ?? id.replace(/^\d+__/, '').replace(/\.[^/.]+$/, '');
+  const svgFull = path.join(UPLOAD_DIR, slateSvgFromVideo(id));
+  try {
+    writeSlateSVG(title, svgFull);
+    res.json({ ok: true, slate: `/uploads/${encodeURIComponent(path.basename(svgFull))}` });
+  } catch {
+    res.status(500).json({ error: 'Slate generation failed' });
+  }
+});
+
+// Upload a custom cover image
+app.post('/api/videos/:id/cover', coverUpload.single('cover'), (req, res) => {
+  const { id } = req.params;
+  const cover = path.join(UPLOAD_DIR, coverJpgFromVideo(id));
+  if (!fs.existsSync(cover)) return res.status(500).json({ error: 'Cover not saved' });
+  res.json({ ok: true, cover: `/uploads/${encodeURIComponent(path.basename(cover))}` });
+});
+
+app.listen(PORT, () => {
+  console.log(`Roniz uploader running on http://localhost:${PORT}`);
+});
+
 
 // Delete video + thumbnails
 app.delete('/api/videos/:id', (req, res) => {

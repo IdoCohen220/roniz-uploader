@@ -67,6 +67,46 @@ if (item.thumb) {
     });
 
     row.appendChild(name);
+    // Button: Slate cover (generate clean title card)
+const slateBtn = document.createElement('button');
+slateBtn.textContent = 'Slate cover';
+slateBtn.className = 'btn';
+slateBtn.addEventListener('click', async () => {
+  slateBtn.disabled = true;
+  await fetch(`/api/videos/${encodeURIComponent(item.id)}/slate`, { method: 'POST' });
+  slateBtn.disabled = false;
+  await fetchVideos();
+});
+row.appendChild(slateBtn);
+
+// Button + input: Upload custom cover
+const coverInput = document.createElement('input');
+coverInput.type = 'file';
+coverInput.accept = 'image/jpeg,image/png,image/webp';
+coverInput.style.display = 'none';
+
+const uploadBtn = document.createElement('button');
+uploadBtn.textContent = 'Upload cover';
+uploadBtn.className = 'btn';
+uploadBtn.addEventListener('click', () => coverInput.click());
+
+coverInput.addEventListener('change', async () => {
+  const f = coverInput.files[0];
+  if (!f) return;
+  uploadBtn.disabled = true;
+  const fd = new FormData();
+  fd.append('cover', f);
+  await fetch(`/api/videos/${encodeURIComponent(item.id)}/cover`, {
+    method: 'POST',
+    body: fd
+  });
+  uploadBtn.disabled = false;
+  await fetchVideos();
+});
+
+row.appendChild(uploadBtn);
+row.appendChild(coverInput);
+
     row.appendChild(save);
     row.appendChild(del);
 
