@@ -104,7 +104,20 @@ function writeSlateSVG(title, outFileFullPath, theme = 'midnight') {
   fs.writeFileSync(outFileFullPath, svg, 'utf-8');
 }
 
-const upload = multer({ storage, limits: { fileSize: 2 * 1024 * 1024 * 1024 } }); // 2GB
+/* ---------- MULTER SETUP (fix: define storage before use) ---------- */
+const videoStorage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+  filename: (req, file, cb) => {
+    const time = Date.now();
+    const safe = file.originalname.replace(/[^\w.\-]+/g, '_');
+    cb(null, `${time}__${safe}`);
+  }
+});
+
+const upload = multer({
+  storage: videoStorage,
+  limits: { fileSize: 2 * 1024 * 1024 * 1024 } // 2GB
+});
 
 // cover image uploader
 const coverUpload = multer({
@@ -208,7 +221,6 @@ app.delete('/api/videos/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// Regenerate clean slate based on current title
 // Regenerate clean slate cover with optional theme ?theme=midnight|chalk|paper
 app.post('/api/videos/:id/slate', (req, res) => {
   const { id } = req.params;
