@@ -10,3 +10,13 @@ h1{margin:0 0 12px 0;font-size:40px}
 .row input[type=text]{flex:1;padding:8px;border-radius:8px;border:1px solid #ddd}
 .row button{padding:8px 10px;border-radius:8px;border:1px solid #ddd;background:white;cursor:pointer}
 .hidden{display:none}
+/* Fallback: if we embed a <video> directly in the square */
+.square video.thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 12px;
+  display: block;
+  background: #000;
+  pointer-events: none; /* so clicks still go to the square (open in new tab) */
+}
