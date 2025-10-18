@@ -219,7 +219,27 @@ app.delete('/api/videos/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+if (!process.env.RENDER) {
+  // Local dev
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Roniz uploader running locally on port ${PORT}`);
+  });
+} else {
+  // Render environment
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Roniz uploader running on port ${PORT}`);
+  });
+
+  // Optional: handle EADDRINUSE gracefully
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.log('Port already in use, skipping duplicate listener');
+    } else {
+      throw err;
+    }
+  });
+}
+
   console.log(`Roniz uploader running on port ${PORT}`);
 });
 
